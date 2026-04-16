@@ -1,5 +1,160 @@
 const { useState, useEffect, useRef } = React;
 
+        // --- FIREBASE INITIALIZATION ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyC50RFdSHxUysTLe7Ehphl64vDD-CWcbFM",
+            authDomain: "e-research-909b5.firebaseapp.com",
+            databaseURL: "https://e-research-909b5-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "e-research-909b5",
+            storageBucket: "e-research-909b5.firebasestorage.app",
+            messagingSenderId: "1067733736920",
+            appId: "1:1067733736920:web:42352520dacaa42583a6ad"
+        };
+        
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.database();
+
+        // --- EDITABLE COMPONENT ---
+        const EditableText = ({ id, defaultText, isEditMode, tagName = "p", className = "" }) => {
+            const [text, setText] = useState(defaultText);
+            const textRef = useRef(defaultText);
+            const elRef = useRef(null);
+            
+            useEffect(() => {
+                const ref = db.ref('content/' + id);
+                const listener = ref.on('value', (snapshot) => {
+                    if (snapshot.exists()) {
+                        const val = snapshot.val();
+                        setText(val);
+                        textRef.current = val;
+                        if (elRef.current && elRef.current !== document.activeElement) {
+                            elRef.current.innerText = val;
+                        }
+                    }
+                });
+                return () => ref.off('value', listener);
+            }, [id]);
+
+            const handleInput = (e) => {
+                textRef.current = e.target.innerText;
+            };
+
+            const handleBlur = (e) => {
+                const newText = textRef.current;
+                db.ref('content/' + id).set(newText);
+            };
+
+            const Tag = tagName;
+            
+            return (
+                <Tag 
+                    ref={elRef}
+                    className={`${className} ${isEditMode ? 'border border-dashed border-emerald-400 p-1 rounded bg-emerald-50/50 cursor-text min-h-[1em] outline-none transition-colors' : ''}`}
+                    contentEditable={isEditMode}
+                    suppressContentEditableWarning={true}
+                    onInput={handleInput}
+                    onBlur={handleBlur}
+                >
+                    {text}
+                </Tag>
+            );
+        };
+
+        // --- FEEDBACK COMPONENT ---
+        const FeedbackSection = ({ tabId }) => {
+            const [comments, setComments] = useState([]);
+            const [name, setName] = useState('');
+            const [content, setContent] = useState('');
+            
+            useEffect(() => {
+                const commentsRef = db.ref('feedbacks/' + tabId);
+                const listener = commentsRef.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    const list = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+                    // Sort descending by timestamp
+                    list.sort((a, b) => b.timestamp - a.timestamp);
+                    setComments(list);
+                });
+                return () => commentsRef.off('value', listener);
+            }, [tabId]);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!name.trim() || !content.trim()) return;
+                
+                db.ref('feedbacks/' + tabId).push({
+                    name: name.trim(),
+                    content: content.trim(),
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                });
+                setContent('');
+            };
+
+            return (
+                <div className="mt-12 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-fade-in">
+                    <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-emerald-100 flex items-center justify-center">
+                                <i data-lucide="users" className="w-3.5 h-3.5 text-emerald-600"></i>
+                            </span>
+                            Góp ý & Thảo luận ({comments.length})
+                        </h4>
+                    </div>
+                    <div className="p-6">
+                        <div className="space-y-4 mb-6 max-h-[300px] overflow-y-auto no-scrollbar scroll-smooth">
+                            {comments.length === 0 ? (
+                                <p className="text-sm text-slate-400 text-center py-8 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">Chưa có góp ý nào. Hãy là người đầu tiên đưa ra quan điểm!</p>
+                            ) : (
+                                comments.map(comment => (
+                                    <div key={comment.id} className="bg-slate-50 p-4 rounded-xl border border-slate-100 relative group">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                                                <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] text-slate-600 uppercase font-bold">
+                                                    {comment.name.substring(0, 2)}
+                                                </div>
+                                                {comment.name}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">
+                                                {new Date(comment.timestamp || Date.now()).toLocaleString('vi-VN')}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-slate-600 whitespace-pre-wrap pl-8">{comment.content}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <form onSubmit={handleSubmit} className="border-t border-slate-200 pt-6">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <input 
+                                    type="text" 
+                                    placeholder="Tên của bạn..." 
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    className="md:col-span-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium text-slate-800"
+                                    required 
+                                />
+                                <div className="md:col-span-3 flex flex-col sm:flex-row gap-3">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Nhập quan điểm của bạn về chiến lược này..." 
+                                        value={content}
+                                        onChange={(e) => setContent(e.target.value)}
+                                        className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium text-slate-800"
+                                        required 
+                                    />
+                                    <button type="submit" className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/30">
+                                        <i data-lucide="send" className="w-4 h-4 mr-2"></i> Gửi Đi
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
         // --- CẤU HÌNH HỆ THỐNG ICON AN TOÀN ---
         // Thiết lập cơ chế render độc lập để loại bỏ lỗi toSvg của thư viện Lucide 
         // và ngăn chặn xung đột AST với Tailwind CSS.
@@ -460,6 +615,7 @@ const { useState, useEffect, useRef } = React;
         function App() {
             const [activeTab, setActiveTab] = useState('overview');
             const [selectedEnergy, setSelectedEnergy] = useState(ENERGY_TYPES[0]);
+            const [isEditMode, setIsEditMode] = useState(false);
 
             const renderContent = () => {
                 switch (activeTab) {
@@ -1601,6 +1757,380 @@ const { useState, useEffect, useRef } = React;
                             </div>
                         );
 
+                    case 'customer_centric':
+                        return (
+                            <div className="animate-fade-in space-y-6">
+                                <SectionHeader
+                                    title={<EditableText id="cc_title" defaultText="Mọi Chiến Lược Đều Bắt Đầu Từ Bài Toán Của Khách Hàng" isEditMode={isEditMode} tagName="span" />}
+                                    subtitle={<EditableText id="cc_subtitle" defaultText="Thương hiệu không định hình từ những gì 365 Energy có, mà từ những rào cản khách hàng C-Level đang cần tháo gỡ. Mọi dữ liệu năng lực của chúng ta đều là 'bảo chứng' để giải quyết nỗi đau của họ." isEditMode={isEditMode} tagName="span" />}
+                                    icon={Users}
+                                    colorClass="bg-gradient-to-br from-slate-800 to-indigo-900"
+                                />
+
+                                <div className="grid md:grid-cols-3 gap-6 mb-8 mt-8">
+                                    <div className="bg-white p-7 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">1. Sự thật thị trường</h3>
+                                            <div className="w-8 h-8 bg-slate-100 text-slate-600 rounded-lg flex items-center justify-center"><BarChart3 className="w-4 h-4" /></div>
+                                        </div>
+                                        <p className="text-base font-bold text-slate-900 mb-2"><EditableText id="cc_box1_title" defaultText="Sự Bão Hòa Của Mô Hình EPC Truyền Thống" isEditMode={isEditMode} tagName="span" /></p>
+                                        <p className="text-sm text-slate-600 leading-relaxed"><EditableText id="cc_box1_desc" defaultText="Khi cơ chế giá FiT khép lại, theo IEEFA, thị trường từ chối việc mua bán thiết bị đơn thuần. Việc cạnh tranh bằng giá thi công đang siết chặt biên lợi nhuận của toàn ngành." isEditMode={isEditMode} tagName="span" /></p>
+                                    </div>
+                                    
+                                    <div className="bg-white p-7 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all relative">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest">2. Nỗi đau khách hàng</h3>
+                                            <div className="w-8 h-8 bg-slate-100 text-slate-600 rounded-lg flex items-center justify-center"><Target className="w-4 h-4" /></div>
+                                        </div>
+                                        <p className="text-base font-bold text-slate-900 mb-2">Áp Lực Kép: Dòng Tiền & Tuân Thủ ESG</p>
+                                        <p className="text-sm text-slate-600 leading-relaxed">Khách hàng C-Level phải giải bài toán tối ưu OPEX (chi phí điện) và đối mặt với rào cản pháp lý mới (DPPA, CBAM, kiểm kê CO2) mà không muốn tự bỏ vốn đầu tư (Capex).</p>
+                                    </div>
+                                    
+                                    <div className="bg-emerald-50/50 border border-emerald-200 p-7 rounded-2xl shadow-sm hover:shadow-md transition-all relative">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-widest">3. Năng lực giải quyết (365E)</h3>
+                                            <div className="w-8 h-8 bg-gradient-to-br from-emerald-500 to-teal-600 text-white rounded-lg flex items-center justify-center"><ShieldCheck className="w-4 h-4" /></div>
+                                        </div>
+                                        <p className="text-base font-bold text-slate-900 mb-2">Bảo Chứng Năng Lực Vững Chắc</p>
+                                        <p className="text-sm text-slate-600 leading-relaxed">Hình thành từ 2016, quản lý hơn <strong>150 dự án C&I (200MWp)</strong>, doanh thu 25M USD (2020). Sở hữu khả năng tài trợ vốn và năng lực thiết kế đạt chuẩn PCCC.</p>
+                                    </div>
+                                </div>
+
+                                <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2 mt-8">
+                                    <Users className="text-emerald-600 w-5 h-5" />
+                                    Ma Trận Giải Pháp Cho Từng Phân Khúc (Target Audience)
+                                </h3>
+                                
+                                <div className="grid md:grid-cols-2 gap-6">
+                                    <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 font-bold text-[10px] uppercase rounded mb-4 inline-block tracking-widest">Tập đoàn Đa quốc gia (FDI)</span>
+                                        <h4 className="text-lg font-bold text-slate-900 mb-2">Chuỗi Cung Ứng Toàn Cầu</h4>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed"><strong>Nỗi đau:</strong> Bị áp đặt cam kết RE100. Sợ nhất rủi ro cháy nổ làm đình trệ sản xuất chuỗi cung ứng.</p>
+                                        
+                                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-1">Giải pháp từ 365 Energy:</p>
+                                            <p className="text-sm text-slate-800 font-medium mb-3">Mô hình Zero-Capex (PPA), cung cấp I-REC (qua 365 Exergy) & Cam kết thi công đạt chuẩn FM Global.</p>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
+                                                    <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                                                    <strong>Bảo chứng thực tế:</strong> Schindler, Dunlopillo, BAT.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                                        <span className="px-2.5 py-1 bg-slate-100 text-slate-700 font-bold text-[10px] uppercase rounded mb-4 inline-block tracking-widest">Công nghiệp Nội địa Lớn</span>
+                                        <h4 className="text-lg font-bold text-slate-900 mb-2">Nhà Máy Sản Xuất Nặng</h4>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed"><strong>Nỗi đau:</strong> Hóa đơn tiền điện (OPEX) bào mòn lợi nhuận. Thiếu dòng vốn để tự đầu tư hệ thống.</p>
+                                        
+                                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-1">Giải pháp từ 365 Energy:</p>
+                                            <p className="text-sm text-slate-800 font-medium mb-3">Tư vấn cấu trúc hợp đồng DPPA, triển khai PPA và tích hợp Lưu trữ điện (BESS) cắt đỉnh giờ cao điểm.</p>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
+                                                    <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                                                    <strong>Bảo chứng thực tế:</strong> Vina One Steel, SC Vivo City, Asia Cold Storage.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+
+                    case 'market_gap':
+                        return (
+                            <div className="animate-fade-in space-y-6">
+                                <SectionHeader
+                                    title={<EditableText id="mg_title" defaultText="Cạnh Tranh Phi Đối Xứng: Đánh Vào Điểm Yếu Cốt Lõi" isEditMode={isEditMode} tagName="span" />}
+                                    subtitle={<EditableText id="mg_subtitle" defaultText="Không so sánh về giá. Bằng cách phân tích DNA tiến hóa của đối thủ, 365 Energy sẽ đánh trực diện vào những Nhu cầu chưa được thỏa mãn của khách hàng mà các tay chơi khác đang bỏ ngỏ." isEditMode={isEditMode} tagName="span" />}
+                                    icon={Target}
+                                    colorClass="bg-gradient-to-br from-indigo-800 to-slate-900"
+                                />
+
+                                <div className="space-y-6 mt-8">
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row hover:shadow-md transition-shadow">
+                                        <div className="md:w-5/12 bg-slate-50 p-8 md:border-r border-slate-200">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <h3 className="text-2xl font-bold text-slate-900">Vũ Phong Energy</h3>
+                                                <span className="px-2 py-1 bg-slate-200 text-slate-600 text-[9px] font-extrabold rounded uppercase tracking-widest">Top Tier Nội Địa</span>
+                                            </div>
+                                            <p className="text-sm text-slate-600 leading-relaxed mb-4">Mở rộng đa ngành (Điện mặt trời, Điện gió, R&D Robot, Asset-Co). Hệ sinh thái lớn nhưng dàn trải.</p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">PPA</span>
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">EPC</span>
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">Robotics</span>
+                                            </div>
+                                        </div>
+                                        <div className="md:w-7/12 p-8 flex flex-col justify-center bg-white">
+                                            <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Khách hàng cần gì?</p>
+                                            <p className="text-sm text-slate-800 font-semibold mb-4">Sự linh hoạt, ra quyết định tài chính nhanh gọn, không vướng quy trình tập đoàn cồng kềnh.</p>
+                                            
+                                            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                                                <p className="font-bold text-emerald-800 text-xs mb-1.5 flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Đối sách của 365E:</p>
+                                                <p className="text-sm text-slate-700">Định vị là <strong>"Boutique EaaS Firm" (Tổ chức tinh hoa)</strong>: Focus 100% vào năng lượng C&I. "May đo" cấu trúc dòng tiền PPA linh hoạt theo từng nhà máy với tốc độ thẩm định cực nhanh.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row hover:shadow-md transition-shadow">
+                                        <div className="md:w-5/12 bg-slate-50 p-8 md:border-r border-slate-200">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <h3 className="text-2xl font-bold text-slate-900">Solarvest Holdings</h3>
+                                                <span className="px-2 py-1 bg-slate-200 text-slate-600 text-[9px] font-extrabold rounded uppercase tracking-widest">Kỳ Lân APAC</span>
+                                            </div>
+                                            <p className="text-sm text-slate-600 leading-relaxed mb-4">Tập đoàn niêm yết Malaysia, năng lực 3.2GWp tại 8 quốc gia. Rất mạnh về FinTech và AIoT.</p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">LSS/C&I</span>
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">Fintech</span>
+                                                <span className="px-2 py-1 bg-white border border-slate-200 text-slate-500 text-[10px] font-bold rounded">RECs</span>
+                                            </div>
+                                        </div>
+                                        <div className="md:w-7/12 p-8 flex flex-col justify-center bg-white">
+                                            <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Khách hàng (FDI) lo sợ điều gì?</p>
+                                            <p className="text-sm text-slate-800 font-semibold mb-4">Rủi ro chậm tiến độ do đối tác ngoại không am hiểu sâu sắc rào cản pháp lý & PCCC tại Việt Nam.</p>
+                                            
+                                            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                                                <p className="font-bold text-emerald-800 text-xs mb-1.5 flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Đối sách của 365E:</p>
+                                                <p className="text-sm text-slate-700">Dùng <strong>Năng Lực Bản Địa (Local Know-how)</strong> làm mộc khiên. Cam kết bao tiêu mượt mà thủ tục PCCC (TCVN 3890), thẩm định FM Global và tư vấn luật DPPA thông suốt.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row hover:shadow-md transition-shadow">
+                                        <div className="md:w-5/12 bg-slate-50 p-8 md:border-r border-slate-200">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <h3 className="text-2xl font-bold text-slate-900">SolarBK</h3>
+                                                <span className="px-2 py-1 bg-slate-200 text-slate-600 text-[9px] font-extrabold rounded uppercase tracking-widest">Sản Xuất Nội Bộ</span>
+                                            </div>
+                                            <p className="text-sm text-slate-600 leading-relaxed mb-4">Đi lên từ R&D, tập trung tự chủ phần cứng với nhà máy sản xuất tấm pin (IREX) và nền tảng IoT (SSOC).</p>
+                                        </div>
+                                        <div className="md:w-7/12 p-8 flex flex-col justify-center bg-white">
+                                            <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Khách hàng cần gì?</p>
+                                            <p className="text-sm text-slate-800 font-semibold mb-4">Giải pháp tối ưu hóa hiệu suất nhất, không muốn bị ép dùng vật tư "cây nhà lá vườn".</p>
+                                            
+                                            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                                                <p className="font-bold text-emerald-800 text-xs mb-1.5 flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Đối sách của 365E:</p>
+                                                <p className="text-sm text-slate-700">Định vị <strong>"Độc lập nền tảng" (Vendor-Neutral)</strong>. Tự do chọn lựa vật tư Tier-1 (Longi, SMA...) để cấu hình hệ thống đạt sản lượng cao nhất cho bài toán riêng của từng chủ đầu tư.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm flex flex-col hover:shadow-md transition-shadow">
+                                            <span className="w-max px-2.5 py-1 bg-slate-100 text-slate-700 text-[9px] font-extrabold rounded uppercase tracking-widest mb-3">Định chế tài chính ngoại</span>
+                                            <h3 className="text-xl font-bold text-slate-900 mb-2">CME Solar / BayWa r.e.</h3>
+                                            <p className="text-sm text-slate-600 mb-4">Mạnh về vốn M&A nhưng thiếu đội ngũ thi công nội địa, phụ thuộc nhà thầu phụ (Outsource EPC).</p>
+                                            <div className="mt-auto border-t border-slate-100 pt-4">
+                                                <p className="text-[10px] text-slate-400 uppercase font-extrabold tracking-widest mb-1">Nỗi lo của khách hàng:</p>
+                                                <p className="text-sm text-slate-800 font-medium mb-3">Bị "bỏ con giữa chợ" khi hệ thống cần bảo trì (O&M).</p>
+                                                <p className="text-sm text-emerald-700 font-semibold">365E chốt bằng: Bảo chứng kép (Vốn mạnh + In-house EPC quản trị 20 năm).</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm flex flex-col hover:shadow-md transition-shadow">
+                                            <span className="w-max px-2.5 py-1 bg-slate-100 text-slate-700 text-[9px] font-extrabold rounded uppercase tracking-widest mb-3">Trading & Boutique EPC</span>
+                                            <h3 className="text-xl font-bold text-slate-900 mb-2">Long Tech / Tona Syntegra</h3>
+                                            <p className="text-sm text-slate-600 mb-4">Thế mạnh cung cấp vật tư/kỹ thuật. Tư duy đàm phán "bán thiết bị" vẫn lấn át.</p>
+                                            <div className="mt-auto border-t border-slate-100 pt-4">
+                                                <p className="text-[10px] text-slate-400 uppercase font-extrabold tracking-widest mb-1">Nỗi lo của khách hàng:</p>
+                                                <p className="text-sm text-slate-800 font-medium mb-3">Bị sa đà vào ma trận so sánh thông số kỹ thuật, giá linh kiện.</p>
+                                                <p className="text-sm text-emerald-700 font-semibold">365E chốt bằng: Đàm phán trực tiếp với CFO về cam kết OPEX và tín chỉ CO2.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+
+                    case 'brand_positioning':
+                        return (
+                            <div className="animate-fade-in space-y-6">
+                                <SectionHeader
+                                    title={<EditableText id="bp_title" defaultText="3 Kịch Bản Chiến Lược Định Vị Tương Lai 2026" isEditMode={isEditMode} tagName="span" />}
+                                    subtitle={<EditableText id="bp_subtitle" defaultText="Các kịch bản được phát triển từ Tầm nhìn của 365E, nhắm thẳng vào các điểm neo trong tâm trí của từng nhóm khách hàng mục tiêu để HĐQT biểu quyết." isEditMode={isEditMode} tagName="span" />}
+                                    icon={MapPin}
+                                    colorClass="bg-gradient-to-br from-emerald-800 to-teal-800"
+                                />
+
+                                <div className="grid md:grid-cols-3 gap-6 mt-8 items-stretch">
+                                    <div className="bg-white rounded-2xl border-2 border-emerald-500 shadow-xl shadow-emerald-500/10 p-8 relative flex flex-col h-full md:-translate-y-4">
+                                        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-4 py-1 text-[10px] font-extrabold rounded-full uppercase tracking-widest shadow-md whitespace-nowrap">
+                                            Lựa Chọn Tối Ưu
+                                        </div>
+                                        <div className="text-center mb-6 mt-4">
+                                            <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-100">
+                                                <Layers className="w-8 h-8 text-emerald-600" />
+                                            </div>
+                                            <h3 className="text-2xl font-extrabold text-slate-900 mb-1">The EaaS Integrator</h3>
+                                            <p className="text-[11px] text-emerald-600 font-bold uppercase tracking-widest">Nhà Tích Hợp Toàn Diện</p>
+                                        </div>
+                                        <div className="flex-1 flex flex-col">
+                                            <p className="text-sm text-slate-600 mb-5 text-center leading-relaxed">Tích hợp hoàn hảo năng lực tài trợ vốn (PPA), năng lực In-house EPC và dịch vụ ESG. Định vị 365E là "Một điểm đến".</p>
+                                            
+                                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-center">
+                                                <p className="text-[10px] text-slate-500 uppercase font-extrabold tracking-widest mb-1.5">Tuyên Ngôn Thương Hiệu</p>
+                                                <p className="text-sm text-slate-800 font-semibold italic">"Chuyển đổi năng lượng không rủi ro, chịu trách nhiệm xuyên suốt từ thiết kế, nguồn vốn đến vận hành."</p>
+                                            </div>
+                                            <ul className="text-sm text-slate-600 space-y-3 mt-auto border-t border-slate-100 pt-4">
+                                                <li className="flex items-start gap-2.5">
+                                                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> 
+                                                    <span><strong>Đáp ứng KH:</strong> Bao quát toàn bộ tệp FDI và Nội địa.</span>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-8 flex flex-col h-full">
+                                        <div className="text-center mb-6 mt-4">
+                                            <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-100">
+                                                <Leaf className="w-8 h-8 text-blue-600" />
+                                            </div>
+                                            <h3 className="text-2xl font-extrabold text-slate-900 mb-1">Net-Zero Catalyst</h3>
+                                            <p className="text-[11px] text-blue-600 font-bold uppercase tracking-widest">Đối Tác ESG Chiến Lược</p>
+                                        </div>
+                                        <div className="flex-1 flex flex-col">
+                                            <p className="text-sm text-slate-600 mb-5 text-center leading-relaxed">Đưa thương hiệu <strong>365 Exergy</strong> lên tuyến đầu. Xây dựng hình ảnh Cố vấn Môi trường cao cấp, thi công chỉ là công cụ.</p>
+                                            
+                                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-center">
+                                                <p className="text-[10px] text-slate-500 uppercase font-extrabold tracking-widest mb-1.5">Tuyên Ngôn Thương Hiệu</p>
+                                                <p className="text-sm text-slate-800 font-semibold italic">"Cấp 'Giấy thông hành Xanh' giúp doanh nghiệp giữ vững vị thế trong chuỗi cung ứng toàn cầu."</p>
+                                            </div>
+                                            <ul className="text-sm text-slate-600 space-y-3 mt-auto border-t border-slate-100 pt-4">
+                                                <li className="flex items-start gap-2.5">
+                                                    <CheckCircle className="w-4 h-4 text-blue-500 shrink-0" /> 
+                                                    <span><strong>Đáp ứng KH:</strong> Đánh trúng nỗi đau tuân thủ CBAM/RE100 của khối FDI.</span>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow p-8 flex flex-col h-full">
+                                        <div className="text-center mb-6 mt-4">
+                                            <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-100">
+                                                <PieChart className="w-8 h-8 text-amber-600" />
+                                            </div>
+                                            <h3 className="text-2xl font-extrabold text-slate-900 mb-1">Green Fin-Architect</h3>
+                                            <p className="text-[11px] text-amber-600 font-bold uppercase tracking-widest">Kiến Tạo Tài Chính Xanh</p>
+                                        </div>
+                                        <div className="flex-1 flex flex-col">
+                                            <p className="text-sm text-slate-600 mb-5 text-center leading-relaxed">Giao tiếp 100% bằng ngôn ngữ tài chính. Định vị 365E như một "Ngân hàng" tài trợ cơ sở hạ tầng (ESCO) cho nhà máy.</p>
+                                            
+                                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 text-center">
+                                                <p className="text-[10px] text-slate-500 uppercase font-extrabold tracking-widest mb-1.5">Tuyên Ngôn Thương Hiệu</p>
+                                                <p className="text-sm text-slate-800 font-semibold italic">"Zero-Capex. Chuyển hóa mái nhàn rỗi thành lợi nhuận OPEX tức thì."</p>
+                                            </div>
+                                            <ul className="text-sm text-slate-600 space-y-3 mt-auto border-t border-slate-100 pt-4">
+                                                <li className="flex items-start gap-2.5">
+                                                    <CheckCircle className="w-4 h-4 text-amber-500 shrink-0" /> 
+                                                    <span><strong>Đáp ứng KH:</strong> Thuyết phục trực diện CFO nội địa đang khát vốn, cần cắt giảm chi phí.</span>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+
+                    case 'profile_arch':
+                        return (
+                            <div className="animate-fade-in space-y-6">
+                                <SectionHeader
+                                    title={<EditableText id="pa_title" defaultText="Kiến Trúc Hồ Sơ Năng Lực 2026: Mô Hình Tích Hợp EaaS Toàn Diện" isEditMode={isEditMode} tagName="span" />}
+                                    subtitle={<EditableText id="pa_subtitle" defaultText="Hồ sơ năng lực 2026 của 365 Energy được tái thiết kế thành một Bản Đề Xuất Giải Pháp sắc bén. Bỏ qua cách kể lể lịch sử nhàm chán, dẫn dắt đối tác đi qua 4 phân lớp giá trị cốt lõi." isEditMode={isEditMode} tagName="span" />}
+                                    icon={Layers}
+                                    colorClass="bg-gradient-to-br from-indigo-900 to-slate-800"
+                                />
+
+                                <div className="space-y-8 mt-8">
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 hover:shadow-md transition-shadow relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-widest z-10 shadow-sm">
+                                            Trang 01 - 04
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-slate-900 mb-2">1. Thấu Hiểu Bối Cảnh (The Context)</h3>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed">Thay thế Thư Ngỏ truyền thống bằng Tuyên ngôn của CEO về áp lực vĩ mô mà chính khách hàng đang phải gánh chịu.</p>
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-2">Mục tiêu C-Level:</p>
+                                            <p className="text-sm text-slate-700 font-medium mb-3">Tạo sự đồng cảm. Chứng minh 365E thấu hiểu luật chơi DPPA, sức ép OPEX và yêu cầu chứng chỉ xanh (CBAM).</p>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-start gap-1.5">
+                                                    <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                                    <span><strong>Gợi ý Copywriting:</strong> "Quý vị đang đứng trước áp lực chuyển dịch kép... 365 Energy ở đây không để bán thiết bị, chúng tôi gánh vác rủi ro đầu tư và chia sẻ lợi nhuận dòng tiền cùng quý vị."</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 hover:shadow-md transition-shadow relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-widest z-10 shadow-sm">
+                                            Trang 05 - 10
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-slate-900 mb-2">2. Hệ Sinh Thái Giải Pháp (EaaS Core)</h3>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed">Trình bày cấu trúc "One-Stop Solution" dưới dạng vòng tuần hoàn khép kín, xóa bỏ sự phân mảnh trong khâu vận hành của nhà máy.</p>
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-2">Cách thức triển khai:</p>
+                                            <ul className="text-sm text-slate-700 space-y-2 mb-3">
+                                                <li><strong>Tài trợ vốn:</strong> Mô hình PPA/ESCO (Zero-Capex).</li>
+                                                <li><strong>Thực thi EPC:</strong> Năng lực tư vấn thiết kế & xây lắp.</li>
+                                                <li><strong>Gia tăng giá trị:</strong> Cung cấp I-REC & Giải pháp BESS.</li>
+                                            </ul>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-start gap-1.5">
+                                                    <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                                    <span><strong>Gợi ý Copywriting:</strong> "Một điểm chạm duy nhất cho mọi nhu cầu. Chúng tôi cung cấp nguồn vốn, kiến tạo hạ tầng và đảm bảo hiệu suất năng lượng 20 năm liên tục."</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 hover:shadow-md transition-shadow relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-widest z-10 shadow-sm">
+                                            Trang 11 - 16
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-slate-900 mb-2">3. Bảo Chứng Năng Lực (Trust Credentials)</h3>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed">Đập tan nỗi lo của CFO và Giám đốc kỹ thuật bằng Data cứng. Không dùng từ ngữ cảm tính.</p>
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-2">Dữ liệu chứng minh (Facts):</p>
+                                            <ul className="text-sm text-slate-700 space-y-2 mb-3">
+                                                <li><strong>An toàn:</strong> Tuân thủ tuyệt đối chuẩn (PCCC), NEC. Loại bỏ nỗi sợ cháy nổ.</li>
+                                                <li><strong>Quy mô:</strong> Hơn 150 dự án, 200MWp quản lý, 300MWp lắp đặt.</li>
+                                                <li><strong>Tài chính:</strong> Doanh thu minh bạch 25M USD, minh chứng tiềm lực mạnh.</li>
+                                            </ul>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-start gap-1.5">
+                                                    <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                                    <span><strong>Gợi ý Copywriting:</strong> "Sự an toàn của nhà máy là bất khả xâm phạm. Mọi thiết kế tại 365 Energy đều đi qua bộ lọc kiểm định khắt khe nhất."</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 hover:shadow-md transition-shadow relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 bg-emerald-500 text-white text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-widest z-10 shadow-sm">
+                                            Trang 17 - 24+
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-slate-900 mb-2">4. Thực Chứng Tác Động (Impact Stories)</h3>
+                                        <p className="text-sm text-slate-600 mb-5 leading-relaxed">Tuyệt đối không liệt kê danh sách dự án khô khan. Trình bày dưới dạng Case Study giải quyết vấn đề.</p>
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <p className="text-[10px] text-emerald-700 uppercase font-extrabold tracking-widest mb-2">Kịch bản Case Study:</p>
+                                            <ul className="text-sm text-slate-700 space-y-2 mb-3">
+                                                <li><strong>Case Vina One (Ngành công nghiệp nặng):</strong> Giải bài toán định mức OPEX và tải hệ thống.</li>
+                                                <li><strong>Case SC Vivo City (Thương mại):</strong> Cấu trúc PPA và O&M chuẩn Châu Âu.</li>
+                                                <li><strong>Case Schindler / BAT (FDI):</strong> Chứng minh năng lực cấp vốn và tiêu chuẩn quốc tế.</li>
+                                            </ul>
+                                            <div className="pt-3 border-t border-slate-200">
+                                                <p className="text-xs text-slate-500 font-medium flex items-start gap-1.5">
+                                                    <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                                    <span><strong>Gợi ý Copywriting:</strong> [Tên Dự án] - Từ bài toán ngân sách đến hệ thống phát điện [X] MWp, tiết kiệm [Y] tỷ VNĐ/năm và cắt giảm [Z] tấn Carbon.</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+
                     default:
                         return null;
                 }
@@ -1618,8 +2148,16 @@ const { useState, useEffect, useRef } = React;
                                     Business Intelligence Hub
                                 </h1>
                             </div>
-                            <div className="text-xs font-bold tracking-widest text-slate-400 uppercase">
-                                Corporate Strategy Portal
+                            <div className="flex items-center gap-4">
+                                <button 
+                                    onClick={() => setIsEditMode(!isEditMode)}
+                                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-colors flex items-center gap-1.5 ${isEditMode ? 'bg-amber-100 border-amber-300 text-amber-700' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
+                                >
+                                    <i data-lucide="edit-3" className="w-3.5 h-3.5"></i> {isEditMode ? 'Tắt Sửa Text' : 'Sửa Text'}
+                                </button>
+                                <div className="text-xs font-bold tracking-widest text-slate-400 uppercase hidden sm:block">
+                                    Corporate Strategy Portal
+                                </div>
                             </div>
                         </div>
                     </header>
@@ -1644,11 +2182,20 @@ const { useState, useEffect, useRef } = React;
                                 <SidebarItem icon={<RefreshCw className="w-5 h-5" />} text="Hệ sinh thái (Ecosystem)" active={activeTab === 'ecosystem'} onClick={() => setActiveTab('ecosystem')} />
                                 <SidebarItem icon={<Rocket className="w-5 h-5" />} text="Chiến lược 365Energy" active={activeTab === 'strategy'} onClick={() => setActiveTab('strategy')} />
                                 <SidebarItem icon={<Shield className="w-5 h-5" />} text="Lợi thế Cạnh tranh (USP)" active={activeTab === 'why_us'} onClick={() => setActiveTab('why_us')} />
+
+                                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 pl-4 mt-6 hidden md:block">Chiến lược Thương hiệu 2026</div>
+                                <SidebarItem icon={<Users className="w-5 h-5" />} text="Định hướng từ Khách hàng" active={activeTab === 'customer_centric'} onClick={() => setActiveTab('customer_centric')} />
+                                <SidebarItem icon={<Target className="w-5 h-5" />} text="Khoảng trống Thị trường" active={activeTab === 'market_gap'} onClick={() => setActiveTab('market_gap')} />
+                                <SidebarItem icon={<MapPin className="w-5 h-5" />} text="Chiến lược Định vị" active={activeTab === 'brand_positioning'} onClick={() => setActiveTab('brand_positioning')} />
+                                <SidebarItem icon={<Layers className="w-5 h-5" />} text="Kiến trúc HSNL" active={activeTab === 'profile_arch'} onClick={() => setActiveTab('profile_arch')} />
                             </nav>
                         </aside>
 
                         <main className="flex-1 min-w-0 pb-24">
                             {renderContent()}
+                            
+                            {/* Khu vực Góp ý theo từng Tab */}
+                            <FeedbackSection tabId={activeTab} />
                         </main>
                     </div>
 
